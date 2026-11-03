@@ -1,4 +1,9 @@
 <!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>평온한 황무지 도시 3D</title>
+<script>
+/* ===== 온라인 랭킹 설정 =====
+   Firebase Realtime Database 주소 (끝에 / 없이). ''(빈 문자열)로 두면 온라인 기능 없이 이 기기 안에서만 동작해요. */
+const RANK_URL='https://doik-9c1b6-default-rtdb.asia-southeast1.firebasedatabase.app';
+</script>
 <style>
 :root{--pn:rgba(255,255,255,.93);--tx:#2b3a2f;--ac:#7cc98a;--bd:#b9cfbd}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--pn:rgba(28,38,32,.93);--tx:#e6f0e8;--ac:#4f9a5d;--bd:#3d5444}}
@@ -74,7 +79,7 @@ const mesh=(g,m,x,y,z)=>{const o=new THREE.Mesh(g,m);o.position.set(x||0,y||0,z|
 
 /* ---------- scene ---------- */
 const scene=new THREE.Scene();scene.background=new THREE.Color(0xbfe3f0);scene.fog=new THREE.Fog(0xcfe8f0,28,75);
-const ren=new THREE.WebGLRenderer({antialias:(devicePixelRatio||1)<2,powerPreference:'high-performance'});ren.setPixelRatio(Math.min(devicePixelRatio||1,2));ren.shadowMap.enabled=true;ren.shadowMap.type=THREE.PCFShadowMap;
+const ren=new THREE.WebGLRenderer({antialias:(window.devicePixelRatio||1)<2});ren.setPixelRatio(Math.min(devicePixelRatio||1,2));ren.shadowMap.enabled=true;ren.shadowMap.type=THREE.PCFShadowMap;
 const cv=ren.domElement;cv.style.cssText='position:fixed;inset:0;touch-action:none';document.body.prepend(cv);
 const cam=new THREE.PerspectiveCamera(40,1,.1,200);
 function size(){ren.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()}
@@ -87,7 +92,21 @@ for(let i=0;i<6;i++){const c=new THREE.Group();for(let k=0;k<4;k++){const s=mesh
 
 /* ---------- tiles ---------- */
 const tiles=[],tg=new THREE.BoxGeometry(1,1,1),COL={w:0xb79d6c,c:0x6b4a2e,p:0x6b4a2e,r:0x6b4a2e,b:0x8fbf7a,water:0x3d95c4};
-for(let y=0;y<N;y++)for(let x=0;x<N;x++){const t={k:'w',t:0,x,y,claim:0},m=new THREE.Mesh(tg,M(0xb79d6c));m.position.set(x+.5,0,y+.5);m.receiveShadow=true;m.userData.t=t;t.m=m;scene.add(m);tiles.push(m);T.push(t)}
+/* 땅 타일 1,681개를 InstancedMesh 1개(draw call 1회)로 그려요. 호수 칸만 투명 재질이라 따로 Mesh를 써요.
+   t.m 은 예전 Mesh처럼 visible / position.y / scale.y / material(.color.setHex) 를 그대로 받아 주는 얇은 대리 객체예요. */
+const IM=new THREE.InstancedMesh(tg,M(0xffffff),N*N),_tc=new THREE.Color();IM.receiveShadow=true;IM.frustumCulled=false;scene.add(IM);
+class TV{constructor(t,i){const s=this;this.t=t;this.i=i;this.vis=true;this.py=0;this.sy=1;this.w=null;this.col=0xb79d6c;this.userData={t};
+  this.position={get y(){return s.py},set y(v){s.py=v;s.up()}};this.scale={get y(){return s.sy},set y(v){s.sy=v;s.up()}};
+  this.cm={color:{setHex(h){s.setCol(h);return this},getHex(){return s.col}}};this.setCol(this.col);this.up()}
+ setCol(h){this.col=h;if(this.w)return;IM.setColorAt(this.i,_tc.setHex(h));IM.instanceColor.needsUpdate=true}
+ up(){const w=this.w,t=this.t,a=IM.instanceMatrix.array,o=this.i*16,on=this.vis&&!w,sy=on?this.sy:0,sx=on?1:0;
+  if(w){w.visible=this.vis;w.position.set(t.x+.5,this.py,t.y+.5);w.scale.y=this.sy}
+  a[o]=sx;a[o+1]=0;a[o+2]=0;a[o+3]=0;a[o+4]=0;a[o+5]=sy;a[o+6]=0;a[o+7]=0;a[o+8]=0;a[o+9]=0;a[o+10]=sx;a[o+11]=0;a[o+12]=t.x+.5;a[o+13]=this.py;a[o+14]=t.y+.5;a[o+15]=1;IM.instanceMatrix.needsUpdate=true}
+ get visible(){return this.vis}set visible(v){this.vis=!!v;this.up()}
+ get material(){return this.w?this.w.material:this.cm}
+ set material(mat){if(mat&&mat.isMeshPhongMaterial){if(this.w)this.w.material=mat;else{const m=new THREE.Mesh(tg,mat);m.receiveShadow=true;m.userData.t=this.t;scene.add(m);this.w=m}}
+  else{if(this.w){scene.remove(this.w);this.w.material.dispose();this.w=null}if(mat&&mat.color)this.setCol(mat.color.getHex())}this.up()}}
+for(let y=0;y<N;y++)for(let x=0;x<N;x++){const t={k:'w',t:0,x,y,claim:0};t.m=new TV(t,y*N+x);T.push(t)}
 const at=(a,b)=>a>=0&&b>=0&&a<N&&b<N?T[b*N+a]:null;
 function mkDecOld(i){const g=new THREE.Group();
  if(i==0){const r=mesh(new THREE.DodecahedronGeometry(.14),M(0x8a8478,{flatShading:true}));r.scale.y=.6;r.position.y=.06;g.add(r)}
@@ -177,8 +196,8 @@ function act(){const t=at(hv.x,hv.y);if(!t)return;if(!isOpen(hv.x,hv.y))return t
 
 /* ---------- input ---------- */
 const rc=new THREE.Raycaster(),mk=new THREE.Mesh(new THREE.PlaneGeometry(1,1),new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.4,depthTest:false}));mk.rotation.x=-Math.PI/2;mk.renderOrder=9;mk.visible=false;scene.add(mk);
-function hov(e){rc.setFromCamera(new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1),cam);const l=[];T.forEach(t=>{if(t.m.visible)l.push(t.m);if(t.body)l.push(t.body)});
- const h=rc.intersectObjects(l,true)[0];let t=null;if(h){let o=h.object;t=o.userData.t;if(!t){const p=h.point;t=at(Math.floor(p.x),Math.floor(p.z))}}
+function hov(e){rc.setFromCamera(new THREE.Vector2(e.clientX/innerWidth*2-1,-(e.clientY/innerHeight)*2+1),cam);const l=[IM];T.forEach(t=>{if(t.m.w&&t.m.vis)l.push(t.m.w);if(t.body)l.push(t.body)});
+ const h=rc.intersectObjects(l,true).find(q=>q.object!==IM||T[q.instanceId].m.vis);let t=null;if(h){let o=h.object;t=o.userData.t||(o===IM?T[h.instanceId]:null);if(!t){const p=h.point;t=at(Math.floor(p.x),Math.floor(p.z))}}
  hv=t?{x:t.x,y:t.y}:{x:-1,y:-1};mk.visible=!!t&&isOpen(t.x,t.y);if(t)mk.position.set(t.x+.5,(t.top||0)+.03,t.y+.5)}
 let az=Math.PI/4,taz=az,zm=1,dist=20,orb=0;const ptr=new Map();
 cv.addEventListener('contextmenu',e=>e.preventDefault());
@@ -247,8 +266,10 @@ const BLD={
 function mkB0(d){const f=BLD[d.t];return f?f(d):mkBOld(d)}
 /* 길찾기 */
 const wk=(x,y)=>{const t=at(x,y);return !!t&&isOpen(x,y)&&t.k!='water'&&t.k!='b'},ak=(x,y)=>wk(x,y)&&!at(x,y).fence;
-const _D8=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
-function bfs(sx,sy,ok){const d=new Int16Array(N*N).fill(-1),pv=new Int16Array(N*N).fill(-1),q=[sy*N+sx];d[q[0]]=0;for(let i=0;i<q.length;i++){const c=q[i],cx=c%N,cy=c/N|0;for(const[dx,dy]of _D8){const nx=cx+dx,ny=cy+dy;if(!ok(nx,ny)||d[ny*N+nx]>=0)continue;if(dx&&dy&&(!ok(cx+dx,cy)||!ok(cx,cy+dy)))continue;d[ny*N+nx]=d[c]+1;pv[ny*N+nx]=c;q.push(ny*N+nx)}}return{d,pv}}
+/* bfs: 매번 새로 만들던 배열을 재사용 (결과 d·pv는 다음 bfs 호출 전까지만 유효 — 호출한 쪽에서 바로 쓰고 버림) */
+const BD=new Int16Array(N*N),BP=new Int16Array(N*N),BQ=new Int16Array(N*N),BR={d:BD,pv:BP},BDX=[1,-1,0,0,1,1,-1,-1],BDY=[0,0,1,-1,1,-1,1,-1],PCAND=[];
+let _bfsF=-1;function bfsSlot(){if(_bfsF===G.time)return false;_bfsF=G.time;return true}/* 한 프레임에 일꾼 길찾기는 1번만 */
+function bfs(sx,sy,ok){BD.fill(-1);BP.fill(-1);let h=0,t=0;BQ[t++]=sy*N+sx;BD[BQ[0]]=0;while(h<t){const c=BQ[h++],cx=c%N,cy=(c/N)|0;for(let k=0;k<8;k++){const dx=BDX[k],dy=BDY[k],nx=cx+dx,ny=cy+dy;if(!ok(nx,ny)||BD[ny*N+nx]>=0)continue;if(dx&&dy&&(!ok(cx+dx,cy)||!ok(cx,cy+dy)))continue;BD[ny*N+nx]=BD[c]+1;BP[ny*N+nx]=c;BQ[t++]=ny*N+nx}}return BR}
 function mkPath(pv,i){const p=[];while(i>=0){p.push([i%N+.5,(i/N|0)+.5]);i=pv[i]}return p.reverse().slice(1)}
 /* 울타리 */
 function rebuildFence(t){if(t.fg){scene.remove(t.fg);t.fg=null}if(!t.fence)return;const g=new THREE.Group(),w=M(0x8a6b45);g.add(mesh(new THREE.BoxGeometry(.09,.6,.09),w,0,.3,0),mesh(new THREE.BoxGeometry(.11,.03,.11),M(0x6a4f30),0,.61,0));[[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dz])=>{const n=at(t.x+dx,t.y+dz);if(n&&n.fence)[.22,.42].forEach(h=>g.add(mesh(new THREE.BoxGeometry(dx?.5:.04,.05,dz?.5:.04),w,dx*.25,h,dz*.25)))});g.position.set(t.x+.5,t.top||0,t.y+.5);t.fg=g;scene.add(g)}
@@ -269,7 +290,7 @@ function update0(dt){G.time+=dt;if(G.fcd>0)G.fcd-=dt;
  G.st+=dt;if(G.st>.5){G.st=0;let p=0,sc=20*G.hall,sh=0;T.forEach(t=>{if(t.k=='b'&&t.b){p+=t.b.pop||0;sc+=t.b.sc||0;sh+=t.b.shop||0}});G.pop=p;G.score=Math.round(sc+p*2);G.shop=sh}
  T.forEach(t=>{if(t.k=='p'){t.t+=dt;if(t.t>=CROPS[t.tc][2])t.k='r'}});
  workers.forEach(w=>{
-  if(w.tg===null){w.ct=(w.ct||0)-dt;if(w.ct<=0){w.ct=.5+Math.random()*.5;const{d,pv}=bfs(Math.floor(w.x),Math.floor(w.y),wk);let bi=-1,bs=1e9;for(let i=0;i<T.length;i++){const t=T[i];if(t.claim||t.fence||(t.k!='c'&&t.k!='r')||d[i]<0)continue;const s=d[i]-(t.k=='r'?4:0);if(s<bs){bs=s;bi=i}}if(bi>=0){w.tg=bi;T[bi].claim=1;w.wk=0;w.path=mkPath(pv,bi)}}}
+  if(w.tg===null){w.ct=(w.ct||0)-dt;if(w.ct<=0&&bfsSlot()){w.ct=.5+Math.random()*.3;const{d,pv}=bfs(Math.floor(w.x),Math.floor(w.y),wk);let bi=-1,bs=1e9;for(let i=0;i<T.length;i++){const t=T[i];if(t.claim||t.fence||(t.k!='c'&&t.k!='r')||d[i]<0)continue;const s=d[i]-(t.k=='r'?4:0);if(s<bs){bs=s;bi=i}}if(bi>=0){w.tg=bi;T[bi].claim=1;w.wk=0;w.path=mkPath(pv,bi)}}}
   w.mv=0;w.working=0;
   if(w.tg!==null){const t=T[w.tg],hp=w.path&&w.path.length;let ok=(t.k=='c'||t.k=='r')&&!t.fence;const nx=hp?w.path[0]:[t.x+.5,t.y+.5];if(hp&&!wk(nx[0]|0,nx[1]|0))ok=false;
    if(!ok){t.claim=0;w.tg=null}else{const dx=nx[0]-w.x,dy=nx[1]-w.y,d=Math.hypot(dx,dy);
@@ -375,7 +396,7 @@ function buyPet(t){const d=PETS[G.pet|0];if(!(t.k=='w'||t.k=='c')||t.fence||t.fs
  pets.push({d,x:t.x+.5,y:t.y+.5,g:mkPet(d),path:[],wt:Math.random()*2,pt:0,ang:Math.random()*6,ta:0,mv:0,hop:0});G.adopt=(G.adopt||0)+1;pop(d.e,t.x+.5,t.y+.5);toast(d.e+' '+d.n+' 입양! '+d.pr+'을(를) 모아와요')}
 function updatePets(dt){pets.forEach((p,i)=>{const d=p.d,g=p.g,u=g.userData;p.mv=0;
   if(p.path.length){const n=p.path[0],dx=n[0]-p.x,dy=n[1]-p.y,l=Math.hypot(dx,dy);if(!okp(n[0]|0,n[1]|0))p.path=[];else if(l>.06){const m=Math.min(l,d.sp*dt);p.x+=dx/l*m;p.y+=dy/l*m;p.ta=Math.atan2(dx,dy);p.mv=1}else p.path.shift()}
-  else{p.wt-=dt;if(p.wt<=0){p.wt=2+Math.random()*5;const{d:ds,pv}=bfs(p.x|0,p.y|0,okp),c=[];for(let j=0;j<ds.length;j++)if(ds[j]>=1&&ds[j]<=4)c.push(j);if(c.length)p.path=mkPath(pv,c[Math.random()*c.length|0])}}
+  else{p.wt-=dt;if(p.wt<=0){p.wt=2+Math.random()*5;const{d:ds,pv}=bfs(p.x|0,p.y|0,okp),c=PCAND;c.length=0;for(let j=0;j<ds.length;j++)if(ds[j]>=1&&ds[j]<=4)c.push(j);if(c.length)p.path=mkPath(pv,c[Math.random()*c.length|0])}}
   p.pt+=dt;if(p.pt>=d.iv){p.pt=0;const vv=Math.max(1,Math.round(d.v*(G.barn||1)*(p.bv||1)*mktSell('p'+d.n)));G.coins+=vv;pop(d.pr+' +'+vv,p.x,p.y);p.hop=.5}
   let y=0;if(p.hop>0){p.hop-=dt;y=Math.sin((1-p.hop/.5)*Math.PI)*.12}
   if(u.bird&&p.mv)y+=Math.abs(Math.sin(G.time*12+i))*.02;
@@ -931,11 +952,8 @@ function logErr(e,where){try{const m=String(e&&e.message||e).slice(0,160),k=wher
   if(r.n==1||r.n%100==0){try{localStorage.setItem('wasteland3d_err',JSON.stringify(ERRS.slice(-10)))}catch(_){}}}catch(_){}}
 addEventListener('error',ev=>logErr(ev.error||ev.message,'window'));addEventListener('unhandledrejection',ev=>logErr(ev.reason,'promise'));
 try{ren.domElement.addEventListener('webglcontextlost',ev=>{ev.preventDefault();logErr('WebGL 컨텍스트 손실(메모리 부족 가능)','gpu')});ren.domElement.addEventListener('webglcontextrestored',()=>{try{toast('🎮 화면을 복구했어요')}catch(_){}})}catch(e){}
-let _pm=Math.min(devicePixelRatio||1,1.5),_pr=_pm,_af=0,_an=0,_ag=0;
-function _ad(ms){if(!(ms>0)||ms>200)return;_af+=ms;_an++;if(_an<40)return;const a=_af/_an;_af=0;_an=0;
- if(a>22&&_pr>.6){_pr=Math.max(.6,_pr-.15);ren.setPixelRatio(_pr);_ag=0}
- else if(a<17.5){if(++_ag>=6&&_pr<_pm){_pr=Math.min(_pm,_pr+.1);ren.setPixelRatio(_pr);_ag=0}}else _ag=0}
-function loop(n){requestAnimationFrame(loop);if(n-last<14)return;let dt=(n-last)/1000;_ad(n-last);if(!(dt>0))dt=0;if(dt>.05)dt=.05;last=n;
+let nxt=0;const FRAME_MS=1000/60;/* 60fps 제한: 120Hz 화면에서는 2프레임에 1번만 그려요 */
+function loop(n){requestAnimationFrame(loop);if(n<nxt-1)return;nxt=(n-nxt>FRAME_MS)?n+FRAME_MS:nxt+FRAME_MS;let dt=(n-last)/1000;if(!(dt>0))dt=0;if(dt>.05)dt=.05;last=n;
  try{update(dt)}catch(e){logErr(e,'update')}try{updateFishers(dt)}catch(e){logErr(e,'fishers')}try{updatePets(dt)}catch(e){logErr(e,'pets')}try{render3(dt)}catch(e){logErr(e,'render')}}
 for(let y=C-5;y<=C-2;y++)for(let x=C+2;x<=C+6;x++)at(x,y).k='water';
 for(let y=C+2;y<=C+3;y++)for(let x=C-3;x<=C-1;x++)at(x,y).k='c';
@@ -945,13 +963,19 @@ toast('⛏ 개간 → 👨‍🌾 농부 고용 → 수확! 우클릭 드래그/
 </script><script>(()=>{
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),Q=id=>document.getElementById(id);
 /* 성능 + 눈 편한 색 */
-ren.setPixelRatio(Math.min(devicePixelRatio||1,1.5));
+const PR_MAX=Math.min(devicePixelRatio||1,1.5),PR_MIN=Math.max(.6,PR_MAX*.5);let PR=PR_MAX;ren.setPixelRatio(PR);
+/* 자동 해상도: 평균 프레임 시간이 길어지면 pixelRatio↓, 여유가 생기면 천천히 ↑ (오르락내리락 방지로 재상승은 점점 더 신중하게) */
+let arA=0,arN=0,arGood=0,arNeed=4,arUp=0;
+function adaptRes(dt){if(!(dt>0))return;arA+=dt;if(++arN<45)return;const avg=arA/arN*1000,now=performance.now();arA=arN=0;
+ if(avg>22){arGood=0;if(PR>PR_MIN+.01){if(now-arUp<8000)arNeed=Math.min(arNeed*2,64);PR=Math.max(PR_MIN,PR*.85);ren.setPixelRatio(PR)}}
+ else if(avg<18.5&&PR<PR_MAX-.01){if(++arGood>=arNeed){arGood=0;arUp=now;PR=Math.min(PR_MAX,PR/.85);ren.setPixelRatio(PR)}}
+ else arGood=0}
 sun.shadow.mapSize.set(1024,1024);if(sun.shadow.map){sun.shadow.map.dispose();sun.shadow.map=null}
 ren.shadowMap.autoUpdate=false;let sf=0;
 scene.background=new THREE.Color(0xa9c6cc);scene.fog.color.set(0xb4cacd);
 scene.children.forEach(o=>{if(o.isHemisphereLight)o.intensity=.6});sun.intensity=.78;base.material.color.setHex(0x9ccf8a);
 clouds.forEach(c=>c.children.forEach(s=>{s.material.color.setHex(0xe4ecee);s.material.opacity=.65}));
-const _r3=window.render3;window.render3=function(dt){if(!(sf++%3))ren.shadowMap.needsUpdate=true;_r3(dt)};
+const _r3=window.render3;window.render3=function(dt){if(!(sf++%3))ren.shadowMap.needsUpdate=true;try{adaptRes(dt)}catch(e){}_r3(dt)};
 /* 시설 능력 보정 */
 const sm=B.find(d=>d.t=='smart');sm.gr=4;sm.gm=1.8;
 const RAD=d=>d.t=='barn'?3:(d.gr||0),petCap=()=>30+10*cntB('barn');window.petCap=petCap;
@@ -1043,44 +1067,97 @@ if(!k)return;G.meat=(G.meat||0)+ms;G.meatT=(G.meatT||0)+ms;toast('🔪 '+k+'마�
 const top=Q('top');const dbs=document.createElement('span');dbs.id='debs';dbs.style.display='none';top.appendChild(dbs);
 [['📖 설명서','man'],['📊 현황','st'],['🔪 도축','bt']].forEach(([l,m])=>{const b=document.createElement('button');b.textContent=l;b.onclick=()=>openP(m);top.appendChild(b)});
 /* ---------- v13: 이름 · 랭킹 ---------- */
-const NK='wasteland3d_name_v1',RK='wasteland3d_rank_v1';let PN='',rkMem={};
+const NK='wasteland3d_name_v1',RK='wasteland3d_rank_v1',TK='wasteland3d_token_v1',NVK='wasteland3d_nameok_v1',RCK='wasteland3d_rankcache_v1';let PN='',rkMem={};
 try{PN=localStorage.getItem(NK)||''}catch(_){}
 const rkEsc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const rkLoad=()=>{try{const o=JSON.parse(localStorage.getItem(RK));return o&&typeof o=='object'&&!Array.isArray(o)?o:rkMem}catch(_){return rkMem}};
-const RANK_URL='https://doik-9c1b6-default-rtdb.asia-southeast1.firebasedatabase.app'; /* ← Firebase Realtime Database 주소를 여기에 붙여넣기 (예: https://내프로젝트-default-rtdb.firebaseio.com) */
-let rkTok='';try{rkTok=localStorage.getItem('wasteland3d_tok_v1')||''}catch(_){}
-if(!rkTok){rkTok='t'+Array.from(crypto.getRandomValues(new Uint8Array(12)),b=>b.toString(16).padStart(2,'0')).join('');try{localStorage.setItem('wasteland3d_tok_v1',rkTok)}catch(_){}}
-let rkRemote=[],rkErr=0,rkFt=0,rkLast=0,rkLs=-1;
-function rkList(){const L=[];
- for(const r of rkRemote){if(String(r[0])==PN)continue;L.push({n:String(r[0]),s:r[1]|0,lv:r[2]|0})}
- if(!RANK_URL){const o=rkLoad();for(const k in o){if(k==PN)continue;const v=o[k];if(Array.isArray(v))L.push({n:k,s:v[0]|0,lv:v[1]|0})}}
- if(PN)L.push({n:PN,s:Math.round(G.score||0),lv:G.hall||1,me:1});
- L.sort((a,b)=>b.s-a.s);return L}
-const rkQ='/rank.json?orderBy=%22s%22&limitToLast=100',rkArr=o=>o?Object.keys(o).map(k=>({k,v:o[k]})).filter(x=>x.v&&x.v.n!=null):[];
-function rkPost(n,chk){const put=()=>fetch(RANK_URL+'/rank/'+rkTok+'.json',{method:'PUT',body:JSON.stringify({n:n,s:Math.round(G.score||0),l:G.hall||1,u:Date.now()})}).then(r=>r.ok?{ok:1}:null).catch(()=>null);
- if(!chk)return put();
- return fetch(RANK_URL+rkQ).then(r=>r.json()).then(o=>rkArr(o).some(x=>x.k!==rkTok&&String(x.v.n)===n)?{e:'taken'}:put()).catch(()=>null)}
-function rkPush(){if(!RANK_URL||!PN||document.hidden)return;const s=Math.round(G.score||0),now=Date.now();if(s===rkLs||now-rkLast<30000)return;rkLast=now;rkLs=s;rkPost(PN)}
-function rkFetch(){if(!RANK_URL||document.hidden||Date.now()-rkFt<15000)return;rkFt=Date.now();
- fetch(RANK_URL+rkQ).then(r=>r.json()).then(o=>{rkRemote=rkArr(o).map(x=>[x.v.n,x.v.s,x.v.l]);rkErr=0;rkUi();if(pmode=='rk')renderP()}).catch(()=>{rkErr=1;if(pmode=='rk')renderP()})}
-function rkSave(){if(!PN)return;const o=rkLoad();o[PN]=[Math.round(G.score||0),G.hall||1,Date.now()];rkMem=o;if(!RANK_URL){try{localStorage.setItem(RK,JSON.stringify(o))}catch(_){}}rkPush()}
+/* --- 온라인 랭킹: Firebase Realtime Database REST(fetch)만 사용 · RANK_URL 이 '' 이면 이 기기 안에서만 동작 --- */
+const RURL=(typeof RANK_URL=='string'?RANK_URL.trim().replace(/\/+$/,''):''),ONL=!!RURL,RL=RURL+'/rank.json?orderBy=%22s%22&limitToLast=100';
+const rkMakeToken=()=>{let h='';try{const a=new Uint8Array(16);crypto.getRandomValues(a);a.forEach(b=>{h+=(b+256).toString(16).slice(1)})}catch(_){h='';for(let i=0;i<32;i++)h+=(Math.random()*16|0).toString(16)}return 't'+h};
+let TOKEN='';
+if(ONL){try{TOKEN=localStorage.getItem(TK)||''}catch(_){}if(!/^t[0-9a-f]{16,64}$/.test(TOKEN)){TOKEN=rkMakeToken();try{localStorage.setItem(TK,TOKEN)}catch(_){}}}
+let rkCache=[],rkOnline=null,rkLoaded=false,rkBusy=0,rkPushBusy=0,rkPullAt=0,rkPushAt=0,rkSig='',rkMyU=0,nameOk=false,askOpen=0;
+try{nameOk=ONL&&!!PN&&localStorage.getItem(NVK)===PN}catch(_){}
+const rkNorm=(k,v)=>v&&typeof v=='object'&&typeof v.n=='string'&&typeof v.s=='number'&&isFinite(v.s)?{k:String(k),n:v.n.slice(0,8),s:Math.max(0,Math.round(v.s)),lv:(v.l|0)||1,u:+v.u||0}:null;
+const rkCmp=(a,b)=>b.s-a.s||(a.u||0)-(b.u||0)||(a.n<b.n?-1:a.n>b.n?1:0);
+function rkParse(o){const a=[];if(o&&typeof o=='object')for(const k in o){const e=rkNorm(k,o[k]);if(e)a.push(e)}return a.sort(rkCmp).slice(0,100)}
+if(ONL){try{rkCache=rkParse(JSON.parse(localStorage.getItem(RCK)))}catch(_){}}
+async function rkFetch(url,opt){let c=null,t=0;try{c=new AbortController();t=setTimeout(()=>c.abort(),8000)}catch(_){}
+ try{return await fetch(url,Object.assign({cache:'no-store'},opt||{},c?{signal:c.signal}:{}))}finally{clearTimeout(t)}}
+/* 순위 읽기: 랭킹 창이 열려 있으면 약 20초, 평소엔 60초마다(rkTick). 탭이 숨겨져 있으면 요청 안 함 */
+async function rkPull(){if(!ONL||rkBusy||document.hidden)return;
+ if(navigator.onLine===false){rkOnline=false;return}
+ rkBusy=1;rkPullAt=Date.now();
+ try{const r=await rkFetch(RL);if(!r.ok)throw new Error('rank '+r.status);const o=await r.json();rkCache=rkParse(o);rkLoaded=true;rkOnline=true;try{localStorage.setItem(RCK,JSON.stringify(o||{}))}catch(_){}try{rkUi()}catch(_){}}
+ catch(e){rkOnline=false}finally{rkBusy=0}}
+/* 이름 중복 확인: n 인덱스가 있으면 정확히 조회, 없으면(400) 최신 상위 100명 목록에서 확인. 네트워크 실패는 throw */
+async function rkNameTaken(v){let o;
+ const r=await rkFetch(RURL+'/rank.json?orderBy=%22n%22&equalTo='+encodeURIComponent(JSON.stringify(v)));
+ if(r.ok)o=await r.json();else if(r.status!=400)throw new Error('rank '+r.status);
+ if(o===undefined){const r2=await rkFetch(RL);if(!r2.ok)throw new Error('rank '+r2.status);o=await r2.json();rkCache=rkParse(o);rkLoaded=true;rkOnline=true}
+ if(o&&typeof o=='object')for(const k in o){const e=o[k];if(k!==TOKEN&&e&&e.n===v)return true}
+ return false}
+/* 점수 올리기: 값이 바뀌었을 때만, 최소 30초 간격 (이름을 막 정했을 때만 force) */
+async function rkPush(force){try{
+ if(!ONL||!PN||!nameOk||document.hidden||navigator.onLine===false)return;
+ if(rkPushBusy){if(force)setTimeout(()=>rkPush(1),1500);return}
+ const s=Math.min(1e6,Math.max(0,Math.round(G.score||0))),l=Math.max(1,G.hall|0),sig=PN+'|'+s+'|'+l;
+ if(sig===rkSig)return;
+ const now=Date.now();if(!force&&now-rkPushAt<30000)return;
+ rkPushBusy=1;rkPushAt=now;
+ try{const r=await rkFetch(RURL+'/rank/'+TOKEN+'.json',{method:'PUT',body:JSON.stringify({n:PN,s:s,l:l,u:now})});if(!r.ok)throw new Error('rank '+r.status);rkSig=sig;rkMyU=now}
+ finally{rkPushBusy=0}
+}catch(e){}}
+/* 오프라인에서 정한 이름 · 예전에 정한 이름은 연결되면 한 번 확인 */
+async function rkVerify(){try{
+ if(!ONL||!PN||nameOk||askOpen||rkBusy||document.hidden||navigator.onLine===false)return;
+ rkBusy=1;
+ try{const t=await rkNameTaken(PN);
+  if(t)askName(1,'이미 쓰는 이름이에요 · 다른 이름을 정해 주세요');
+  else{nameOk=true;try{localStorage.setItem(NVK,PN)}catch(_){}rkPush(1)}}
+ finally{rkBusy=0}
+}catch(e){}}
+function rkList(){const sc=Math.round(G.score||0);
+ if(!ONL){const o=rkLoad(),L=[];
+  for(const k in o){if(k==PN)continue;const v=o[k];if(Array.isArray(v))L.push({n:k,s:v[0]|0,lv:v[1]|0})}
+  if(PN)L.push({n:PN,s:sc,lv:G.hall||1,me:1});
+  L.sort((a,b)=>b.s-a.s);return L}
+ const L=rkCache.filter(e=>e.k!==TOKEN);if(!PN)return L;
+ const me={n:PN,s:Math.min(1e6,Math.max(0,sc)),lv:G.hall||1,me:1,u:rkMyU||Date.now()},mine=L.length!==rkCache.length,last=rkCache[rkCache.length-1];
+ if(!mine&&rkCache.length>=100&&last&&me.s<=last.s){me.out=1;L.sort(rkCmp);L.push(me);return L}
+ L.push(me);L.sort(rkCmp);return L}
+function rkSave(){if(!PN)return;
+ if(ONL){rkPush(0);return}
+ const o=rkLoad();o[PN]=[Math.round(G.score||0),G.hall||1,Date.now()];rkMem=o;try{localStorage.setItem(RK,JSON.stringify(o))}catch(_){}}
 function rkHTML(){const L=rkList(),mi=L.findIndex(x=>x.me),med=['🥇','🥈','🥉'];
- const row=(x,i)=>'<div class=r style="'+(x.me?'background:rgba(124,201,138,.18);border-radius:8px;padding:4px 6px;font-weight:700':'')+'"><span>'+(med[i]||(i+1)+'위')+' '+rkEsc(x.n)+(x.ai?' <small>🤖</small>':'')+(x.lv?' <small>Lv'+x.lv+'</small>':'')+'</span><b>'+x.s+'</b></div>';
- let h='<small>'+(RANK_URL?'실제 플레이어들의 도시 경쟁력 순위예요 · '+(rkErr?'⚠️ 연결 안 됨(마지막 정보)':'약 20초마다 갱신'):'이 기기에서 플레이한 이름만 보여요 (온라인 랭킹 미연결)')+'</small>'+L.slice(0,10).map(row).join('');
+ const row=(x,i)=>'<div class=r style="'+(x.me?'background:rgba(124,201,138,.18);border-radius:8px;padding:4px 6px;font-weight:700':'')+'"><span>'+(x.out?'100위 밖':(med[i]||(i+1)+'위'))+' '+rkEsc(x.n)+(x.lv?' <small>Lv'+x.lv+'</small>':'')+'</span><b>'+x.s+'</b></div>';
+ let h=ONL?'<small>도시 발전 점수(경쟁력) 순위예요. 실제 플레이어들과 겨루는 온라인 랭킹이고, 이 창을 열어 두면 약 20초마다 새로 고쳐져요.</small>':'<small>도시 발전 점수(경쟁력) 순위예요. 이 기기에서 플레이한 이름이 함께 보여요.</small>';
+ if(ONL&&rkOnline===false)h+='<div style="color:#e0725a;font-weight:700">⚠️ 연결 안 됨 <small style="font-weight:400">· 마지막으로 받은 순위예요</small></div>';
+ else if(ONL&&!rkLoaded&&!rkCache.length)h+='<small>순위를 불러오는 중…</small>';
+ h+=L.slice(0,10).map(row).join('');
  if(mi>=10)h+='<div class=r><small>⋯</small></div>'+row(L[mi],mi);return h}
-const rkBtn=document.createElement('button');rkBtn.id='rkb';rkBtn.onclick=()=>{openP('rk');rkFetch()};$('top').appendChild(rkBtn);
-function rkUi(){const i=PN?rkList().findIndex(x=>x.me):-1;rkBtn.textContent=i>=0?'🏆 '+(i+1)+'위':'🏆 랭킹'}
-function askName(rn){const old=PN,d=document.createElement('div');d.style.cssText='position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:rgba(10,16,12,.72);padding:16px';
- d.innerHTML='<div style="background:rgba(30,40,36,.97);color:#e6eee8;border:1px solid rgba(255,255,255,.13);border-radius:16px;padding:18px;width:min(320px,90vw);display:flex;flex-direction:column;gap:10px;text-align:center"><b style="font-size:17px">🌱 평온한 황무지 도시</b><span>'+(rn?'새 이름을 입력하세요':'도시를 시작하기 전에 이름을 정해 주세요')+'</span><input id="pnin" maxlength="8" placeholder="이름 (최대 8글자)" style="padding:9px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);text-align:center;font-size:15px"><button id="pnok" style="padding:9px;font-weight:700">시작하기</button></div>';
- document.body.appendChild(d);const inp=d.querySelector('#pnin'),ok=d.querySelector('#pnok');if(rn)inp.value=PN;
- const go=()=>{const v=inp.value.trim().slice(0,8);if(!v){inp.style.borderColor='#e0725a';inp.placeholder='이름을 입력해 주세요';inp.focus();return}
+const rkBtn=document.createElement('button');rkBtn.id='rkb';rkBtn.onclick=()=>{openP('rk');if(pmode=='rk'&&ONL&&Date.now()-rkPullAt>10000)rkPull()};$('top').appendChild(rkBtn);
+function rkUi(){if(ONL&&!rkLoaded&&!rkCache.length){rkBtn.textContent='🏆 랭킹';return}
+ const L=PN?rkList():[],i=L.findIndex(x=>x.me);rkBtn.textContent=i<0?'🏆 랭킹':L[i].out?'🏆 100위 밖':'🏆 '+(i+1)+'위'}
+function askName(rn,note){if(askOpen)return;askOpen=1;const old=PN,d=document.createElement('div');d.style.cssText='position:fixed;inset:0;z-index:30;display:flex;align-items:center;justify-content:center;background:rgba(10,16,12,.72);padding:16px';
+ d.innerHTML='<div style="background:rgba(30,40,36,.97);color:#e6eee8;border:1px solid rgba(255,255,255,.13);border-radius:16px;padding:18px;width:min(320px,90vw);display:flex;flex-direction:column;gap:10px;text-align:center"><b style="font-size:17px">🌱 평온한 황무지 도시</b><span>'+(rn?'새 이름을 입력하세요':'도시를 시작하기 전에 이름을 정해 주세요')+'</span><input id="pnin" maxlength="8" placeholder="이름 (최대 8글자)" style="padding:9px;border-radius:10px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);text-align:center;font-size:15px"><span id="pnmsg" style="min-height:1.2em;font-size:12px;color:#ffb4a8"></span><button id="pnok" style="padding:9px;font-weight:700">시작하기</button></div>';
+ document.body.appendChild(d);const inp=d.querySelector('#pnin'),ok=d.querySelector('#pnok');if(rn)inp.value=PN;const msg=d.querySelector('#pnmsg');if(note)msg.textContent=note;
+ let busy=0;const go=async()=>{if(busy)return;const v=inp.value.trim().slice(0,8).replace(/[\uD800-\uDBFF]$/,'');if(!v){inp.style.borderColor='#e0725a';inp.placeholder='이름을 입력해 주세요';inp.focus();return}
+  let unk=0;if(ONL&&!(v===PN&&nameOk)){busy=1;ok.disabled=true;ok.textContent='확인 중…';msg.textContent='';let taken=false;try{taken=await rkNameTaken(v)}catch(e){unk=1}busy=0;ok.disabled=false;ok.textContent='시작하기';
+   if(taken){msg.textContent='이미 쓰는 이름이에요';inp.style.borderColor='#e0725a';inp.focus();return}}
   if(rn&&old&&old!=v){const o=rkLoad();delete o[old];rkMem=o;try{localStorage.setItem(RK,JSON.stringify(o))}catch(_){}}
-  const fin=()=>{PN=v;try{localStorage.setItem(NK,PN)}catch(_){}rkSave();d.remove();rkUi();if(pmode=='rk')renderP()};
-  if(!RANK_URL)return fin();ok.disabled=true;ok.textContent='확인 중…';
-  rkPost(v,1).then(r=>{if(r&&r.e=='taken'){ok.disabled=false;ok.textContent='시작하기';inp.value='';inp.placeholder='이미 쓰는 이름이에요 😅';inp.style.borderColor='#e0725a';inp.focus();return}fin()})};
+  PN=v;try{localStorage.setItem(NK,PN)}catch(_){}
+  if(ONL){nameOk=!unk;try{if(nameOk)localStorage.setItem(NVK,PN);else localStorage.removeItem(NVK)}catch(_){}if(unk)toast('⚠️ 연결 안 됨 · 이름은 연결되면 다시 확인할게요');rkPush(1)}else rkSave();
+  askOpen=0;d.remove();rkUi();if(pmode=='rk')renderP()};
  ok.onclick=go;inp.onkeydown=e=>{if(e.key=='Enter'&&!e.isComposing)go()};setTimeout(()=>inp.focus(),50)}
 Q('pf').addEventListener('click',e=>{if(e.target&&e.target.id=='rn')askName(1)});
-setInterval(()=>{try{rkSave();rkUi()}catch(e){}},3000);setInterval(()=>{try{if(pmode=='rk'||Date.now()-rkFt>60000)rkFetch()}catch(e){}},5000);rkFetch();rkUi();if(!PN)askName(0);
+function rkTick(){try{rkSave();
+ if(ONL&&!document.hidden){if(!nameOk)rkVerify();if(Date.now()-rkPullAt>=(pmode=='rk'?20000:60000)-1500)rkPull()}
+ rkUi()}catch(e){}}
+setInterval(rkTick,3000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)rkTick()});
+addEventListener('online',()=>{rkPullAt=0;rkTick()});addEventListener('offline',()=>{rkOnline=false});
+rkUi();if(!PN)askName(0);
 /* 저장 / 불러오기 */
 const SK='wasteland3d_save_v1';
 function save(){if(window.__noSave)return;try{const g={};for(const k in G)if(!['def','tool','tab','tabOpen','et','e2','e3','st','itv'].includes(k))g[k]=G[k];
