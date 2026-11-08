@@ -1692,14 +1692,11 @@ setTimeout(()=>{try{toast('👆 다 자란 작물을 톡! 눌러 직접 수확�
 #fxk button{border-radius:999px;padding:8px 11px;font-size:15px;line-height:1;background:rgba(30,40,36,.88);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 4px 14px rgba(0,0,0,.3)}
 #fxw{position:fixed;inset:0;z-index:2;pointer-events:none;overflow:hidden;opacity:0;transition:opacity 1.2s}
 #fxw.on{opacity:1}
-#fxw::before{content:'';position:absolute;inset:-25% -10%;opacity:0;background:repeating-linear-gradient(104deg,rgba(215,230,255,0) 0 13px,rgba(215,230,255,.5) 13px 14px);will-change:transform}
+#fxw canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
 #fxw::after{content:'';position:absolute;inset:0;transition:background 1.2s}
-#fxw.rain::before,#fxw.storm::before{opacity:.5;animation:fxrain .55s linear infinite}
-#fxw.storm::before{opacity:.7;animation-duration:.38s}
 #fxw.rain::after{background:rgba(40,60,90,.12)}#fxw.storm::after{background:rgba(25,35,60,.26)}
 #fxw.heat::after{background:radial-gradient(ellipse at 50% 30%,rgba(255,190,90,.16),rgba(255,120,40,.1))}
 #fxw.flash::after{background:rgba(255,255,255,.55);transition:none}
-@keyframes fxrain{to{transform:translate(-60px,170px)}}
 #fxconf{position:fixed;inset:0;z-index:40;pointer-events:none;overflow:hidden}
 #fxconf i{position:absolute;top:-8%;font-style:normal;font-size:22px;animation:fxfall linear forwards}
 @keyframes fxfall{to{transform:translate(var(--dx),115vh) rotate(var(--rot))}}
@@ -1755,8 +1752,82 @@ window.fxDef=()=>{try{F().fxD++}catch(e){}};
 
 /* ---------- 날씨 ---------- */
 const WX={sun:{n:'맑음',e:'☀️',m:1,d:'평범한 날씨예요'},rain:{n:'비',e:'🌧',m:1.15,d:'작물이 빨리 자라고 판매가 +15%'},heat:{n:'폭염',e:'🥵',m:.9,d:'판매가 -10%'},storm:{n:'폭풍',e:'⛈',m:.85,d:'판매가 -15% · 번개 조심'}};
+
+/* 화면에 겹치는 사선 패턴 대신 각기 다른 속도와 깊이의 빗방울을 그려요. */
+const rainCanvas=document.createElement('canvas');
+rainCanvas.setAttribute('aria-hidden','true');
+const rainHost=$q('fxw');
+if(rainHost)rainHost.appendChild(rainCanvas);
+const rainCtx=rainCanvas.getContext('2d');
+let rainWidth=0,rainHeight=0,rainDpr=1,rainDrops=[],rainFrame=0,rainPrevious=0;
+function resetRainDrop(p,initial){
+  p.x=Math.random()*rainWidth;
+  p.y=initial?Math.random()*rainHeight:-Math.random()*Math.min(90,rainHeight*.15);
+  p.depth=.3+Math.random()*.7;
+  p.speed=(340+Math.random()*360)*(.55+p.depth*.65);
+  p.length=(4+Math.random()*12)*(.55+p.depth*.65);
+  p.layer=p.depth<.53?0:p.depth<.8?1:2;
+  p.phase=Math.random()*Math.PI*2;
+}
+function fitRain(){
+  if(!rainCtx)return;
+  const w=Math.max(1,innerWidth),h=Math.max(1,innerHeight),dpr=Math.min(devicePixelRatio||1,1.5);
+  if(w===rainWidth&&h===rainHeight&&dpr===rainDpr)return;
+  rainWidth=w;rainHeight=h;rainDpr=dpr;
+  rainCanvas.width=Math.ceil(w*dpr);rainCanvas.height=Math.ceil(h*dpr);
+  rainCtx.setTransform(dpr,0,0,dpr,0,0);
+  rainDrops=Array.from({length:Math.max(80,Math.min(440,Math.round(w*h/5500)))},()=>{
+    const p={};resetRainDrop(p,true);return p;
+  });
+}
+function drawRain(now){
+  rainFrame=0;
+  const weather=F().wx.k;
+  if(document.hidden||(weather!='rain'&&weather!='storm')){
+    rainPrevious=0;
+    if(rainCtx)rainCtx.clearRect(0,0,rainWidth,rainHeight);
+    return;
+  }
+  if(!rainCtx)return;
+  fitRain();
+  const dt=rainPrevious?Math.min((now-rainPrevious)/1000,.05):1/60;
+  rainPrevious=now;
+  const storm=weather=='storm';
+  rainCtx.clearRect(0,0,rainWidth,rainHeight);
+  rainCtx.lineCap='round';
+  const alphas=storm?[.28,.43,.64]:[.24,.38,.55];
+  const widths=[.7,1,1.5];
+  for(let layer=0;layer<3;layer++){
+    rainCtx.beginPath();
+    rainCtx.strokeStyle='#dceaff';
+    rainCtx.lineWidth=widths[layer];
+    rainCtx.globalAlpha=alphas[layer];
+    for(const p of rainDrops){
+      if(p.layer!==layer)continue;
+      const vy=p.speed*(storm?1.3:1);
+      const vx=(storm?-145:-17)*(.6+p.depth*.4)+Math.sin(now*.0018+p.phase)*(storm?14:5);
+      p.x+=vx*dt;p.y+=vy*dt;
+      if(p.y>rainHeight+p.length||p.x< -rainWidth*.1){resetRainDrop(p,false);continue}
+      const len=p.length*(storm?1.25:1);
+      rainCtx.moveTo(p.x,p.y);
+      rainCtx.lineTo(p.x-vx*len/vy,p.y-len);
+    }
+    rainCtx.stroke();
+  }
+  rainCtx.globalAlpha=1;
+  rainFrame=requestAnimationFrame(drawRain);
+}
 const pickWx=()=>{const r=rnd();return r<.52?'sun':r<.78?'rain':r<.9?'heat':'storm'};
-function wxView(){const w=$q('fxw');if(!w)return;const k=F().wx.k;w.className=(k=='sun'?'':'on '+k);}
+function wxView(){
+  const w=$q('fxw');if(!w)return;
+  const k=F().wx.k;w.className=(k=='sun'?'':'on '+k);
+  if((k=='rain'||k=='storm')&&!document.hidden&&rainCtx&&!rainFrame){
+    rainPrevious=0;rainFrame=requestAnimationFrame(drawRain);
+  }else if(k!='rain'&&k!='storm'&&rainCtx){
+    rainCtx.clearRect(0,0,rainWidth,rainHeight);
+  }
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)wxView()});
 function wxChange(){const f=F(),w=f.wx;w.k=w.nx||pickWx();w.nx=pickWx();w.t=110+rnd()*110;wxView();const d=WX[w.k];if(w.k!='sun')toast(d.e+' '+d.n+' — '+d.d);badge()}
 
 /* ---------- 시장(시세) 접근 + 이벤트 ---------- */
